@@ -1,0 +1,1245 @@
+---
+title: "Tugas-pertemuan-2"
+author: "Ghonia Choirinnajdhatul Muna"
+date: "2025-09-01"
+output:
+  pdf_document: default
+  html_document: default
+---
+---
+title: "Pertemuan-2"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+## Library/Packages
+
+*Package* R yang akan digunakan pada perkuliahan Analisis Deret Waktu sesi UTS adalah: `forecast`, `graphics`, `TTR`, `TSA` . Jika *package* tersebut belum ada, silakan install terlebih dahulu.
+
+```{r}
+#install.packages("forecast")
+#install.packages("graphics")
+#install.packages("TTR")
+#install.packages("TSA")
+```
+
+Jika sudah ada, silakan panggil library *package* tersebut.
+
+```{r}
+library("forecast")
+library("graphics")
+library("TTR")
+library("TSA")
+```
+
+## Impor Data
+
+```{r}
+## Impor Data
+library(rio)   # install.packages("rio") kalau belum ada
+
+# Import data langsung dari GitHub (pakai link raw)
+data_btc <- import("https://raw.githubusercontent.com/Raitozzz/MPDW-2025/main/Kelompok%2010/Harga%20btc_kelompok%2010.csv")
+
+# Mengecek jumlah baris
+nrow(data_btc)
+
+# Ambil 1/5 bagian akhir dari dataset
+data_btc_subset <- tail(data_btc, nrow(data_btc)/5)
+
+# Tampilkan 5 baris pertama dari subset
+head(data_btc_subset)
+
+```
+
+## Eksplorasi Data
+
+
+Mengubah data agar terbaca sebagai data deret waktu dengan fungsi `ts()` .
+
+```{r}
+## Ubah kolom price jadi time series
+btc.ts <- ts(data_btc_subset$price, 
+             start = c(2020, 1),  # mulai Januari 2020 (sesuai data kamu)
+             frequency = 365)     # harian
+             
+## Cek ringkasan
+summary(btc.ts)
+
+## Plot sederhana
+plot(btc.ts, main = "Harga BTC (Subset 1/5 Terakhir)", ylab = "Price", xlab = "Time")
+
+```
+
+Menampilkan ringkasan data
+
+```{r}
+summary(btc.ts)
+```
+
+Membuat plot data deret waktu
+
+```{r}
+## Plot data deret waktu BTC
+ts.plot(btc.ts, 
+        xlab = "Time Period", 
+        ylab = "Price", 
+        main = "Time Series Plot of BTC (Subset 1/5 Terakhir)",
+        col = "blue")
+
+## Tambahkan titik-titik data
+points(btc.ts, col = "red", pch = 16)
+
+## Jika mau disimpan ke file PNG
+dev.copy(png, "plot_btc_subset.png")
+dev.off()
+
+```
+
+
+## Single Moving Average & Double Moving Average
+
+### Pembagian Data
+
+Pembagian data latih dan data uji dilakukan dengan perbandingan 80% data latih dan 20% data uji.
+
+```{r}
+# hitung jumlah data
+n <- nrow(data_btc_subset)
+
+# tentukan batas 80%
+n_train <- floor(0.8 * n)
+
+# bagi data (80% train, 20% test)
+training_btc <- data_btc_subset[1:n_train, ]
+testing_btc  <- data_btc_subset[(n_train+1):n, ]
+
+# ubah ke time series
+train_btc.ts <- ts(training_btc$price, start = c(2020, 1), frequency = 365)
+test_btc.ts  <- ts(testing_btc$price,  start = c(2020, 1), frequency = 365)
+
+# cek hasil
+summary(train_btc.ts)
+summary(test_btc.ts)
+```
+
+Eksplorasi data dilakukan pada keseluruhan data, data latih serta data uji menggunakan plot data deret waktu.
+
+```{r}
+## Eksplorasi keseluruhan data
+plot(btc.ts, col="red", main="Plot Seluruh Data BTC", 
+     xlab="Time", ylab="Price")
+points(btc.ts, col="red")
+
+## Eksplorasi data latih (80%)
+plot(train_btc.ts, col="blue", main="Plot Data Latih BTC", 
+     xlab="Time", ylab="Price")
+points(train_btc.ts, col="blue")
+
+## Eksplorasi data uji (20%)
+plot(test_btc.ts, col="green", main="Plot Data Uji BTC", 
+     xlab="Time", ylab="Price")
+points(test_btc.ts, col="green")
+
+```
+
+Eksplorasi data juga dapat dilakukan menggunakan package `ggplot2` dengan terlebih dahulu memanggil library *package* `ggplot2`.
+
+```{r}
+# pastikan tanggal benar2 Date
+data_btc_subset$date <- as.Date(data_btc_subset$date, format = "%m/%d/%Y")
+
+# split 80/20
+n <- nrow(data_btc_subset)
+n_train <- floor(0.8 * n)
+training_btc <- data_btc_subset[1:n_train, ]
+testing_btc  <- data_btc_subset[(n_train+1):n, ]
+
+# plot train vs test dengan ggplot2
+library(ggplot2)
+
+ggplot() +
+  geom_line(data = training_btc,
+            aes(x = date, y = price, color = "Data Latih", group = 1), linewidth = 0.7) +
+  geom_line(data = testing_btc,
+            aes(x = date, y = price, color = "Data Uji", group = 1), linewidth = 0.7) +
+  scale_color_manual(name = "Keterangan",
+                     values = c("Data Latih" = "blue", "Data Uji" = "red")) +
+  labs(title = "Train vs Test – Harga BTC (Subset 1/5 Terakhir)",
+       x = "Tanggal", y = "Price") +
+  theme_bw() +
+  theme(legend.position = "bottom")
+
+ 
+```
+
+### Single Moving Average (SMA)
+
+Ide dasar dari Single Moving Average (SMA) adalah data suatu periode dipengaruhi oleh data periode sebelumnya. Metode pemulusan ini cocok digunakan untuk pola data stasioner atau konstan. Prinsip dasar metode pemulusan ini adalah data pemulusan pada periode ke-t merupakan rata rata dari m buah data pada periode ke-t hingga periode ke (t-m+1).
+
+$$
+S_t = \frac{1}{m} \sum_{i=t-m+1}^{t} X_i
+$$
+
+Data pemulusan pada periode ke-t selanjutnya digunakan sebagai nilai peramalan pada periode ke t+1.
+
+$$
+F_t = S_{t-1}, F_{n,h} = S_n
+$$
+
+Pemulusan menggunakan metode SMA dilakukan dengan fungsi `SMA()`. Dalam hal ini akan dilakukan pemulusan dengan parameter `m=4`.
+
+```{r}
+data.sma<-SMA(train_btc.ts, n=4)
+data.sma
+```
+
+Data pemulusan pada periode ke-t selanjutnya digunakan sebagai nilai peramalan pada periode ke t+1 sehingga hasil peramalan 1 periode kedepan adalah sebagai berikut.
+
+```{r}
+data.ramal<-c(NA,data.sma)
+data.ramal #forecast 1 periode ke depan
+```
+
+Selanjutnya dilakukan peramalan sebanyak 24 periode sesuai dengan jumlah data uji. Pada metode SMA, seluruh hasil peramalan untuk 24 periode ke depan akan memiliki nilai yang sama dengan hasil ramalan satu periode ke depan.
+
+```{r}
+data.gab<-cbind(
+  aktual=c(btc.ts),
+  pemulusan=c(data.sma,rep(NA,24)),
+  ramalan=c(data.ramal,rep(data.ramal[length(data.ramal)],23)))
+
+data.gab #forecast 24 periode ke depan
+```
+
+
+
+Adapun plot data deret waktu dari hasil peramalan yang dilakukan adalah sebagai berikut.
+
+```{r}
+library(TTR)
+
+## ===== 1) PEMULUSAN SMA PADA DATA LATIH =====
+m <- 4
+sma_train <- SMA(as.numeric(train_btc.ts), n = m)  # hasil: panjang = length(train_btc.ts)
+
+## Horizon ramalan = panjang data uji (biar pas)
+h <- length(test_btc.ts)
+last_sma <- tail(na.omit(sma_train), 1)
+sma_forecast_test <- rep(last_sma, h)
+
+## Susun vektor agar selaras dengan seluruh seri (train+test)
+pemulusan_full <- c(sma_train, rep(NA, h))                          # biru/hijau (train saja)
+ramalan_full   <- c(rep(NA, length(train_btc.ts)), sma_forecast_test) # merah (test)
+aktual_full    <- as.numeric(btc.ts)
+
+## ===== 2) PLOT ALA ASPRAK (ts.plot + points + lines) =====
+ts.plot(ts(aktual_full, start = start(btc.ts), frequency = frequency(btc.ts)),
+        xlab="Time Period", ylab="Price", main=paste0("SMA N=", m, " – Harga BTC"))
+points(ts(aktual_full, start = start(btc.ts), frequency = frequency(btc.ts)), col="black", cex=0.4)
+
+lines(ts(pemulusan_full, start = start(btc.ts), frequency = frequency(btc.ts)), col="green", lwd=2)
+lines(ts(ramalan_full,   start = start(btc.ts), frequency = frequency(btc.ts)), col="red",   lwd=2)
+
+legend("topleft",
+       legend=c("data aktual","data pemulusan","data peramalan"),
+       lty=1, lwd=2, col=c("black","green","red"), bty="n", cex=0.8)
+
+## ===== 3) AKURASI: SSE, MSE, MAPE (TRAIN & TEST) =====
+# Train: bandingkan train_btc.ts vs sma_train (buang NA di awal)
+idx_tr   <- which(!is.na(sma_train))
+y_tr     <- as.numeric(train_btc.ts)[idx_tr]
+yhat_tr  <- sma_train[idx_tr]
+
+SSE_tr   <- sum( (y_tr - yhat_tr)^2 )
+MSE_tr   <- mean( (y_tr - yhat_tr)^2 )
+MAPE_tr  <- mean( abs((y_tr - yhat_tr) / y_tr) ) * 100
+
+# Test: bandingkan test_btc.ts vs sma_forecast_test
+y_te     <- as.numeric(test_btc.ts)
+yhat_te  <- sma_forecast_test
+
+SSE_te   <- sum( (y_te - yhat_te)^2 )
+MSE_te   <- mean( (y_te - yhat_te)^2 )
+MAPE_te  <- mean( abs((y_te - yhat_te) / y_te) ) * 100
+
+data.frame(
+  Bagian = c("Train (80%)", "Test (20%)"),
+  SSE    = c(SSE_tr, SSE_te),
+  MSE    = c(MSE_tr, MSE_te),
+  MAPE.. = c(MAPE_tr, MAPE_te)
+)
+
+```
+
+Selanjutnya perhitungan akurasi dilakukan dengan ukuran akurasi *Sum Squares Error* (SSE), *Mean Square Error* (MSE) dan *Mean Absolute Percentage Error* (MAPE). Perhitungan akurasi dilakukan baik pada data latih maupun pada data uji.
+
+$$
+SSE = \sum_{t=1}^{n} (y_t - \hat{y}_t)^2
+$$
+$$
+MSE = \frac{1}{n} \sum_{t=1}^{n} (y_t - \hat{y}_t)^2
+$$
+$$
+MAPE = \frac{1}{n} \sum_{t=1}^{n} \left|\frac{y_t - \hat{y}_t}{y_t}\right| * 100
+$$
+
+```{r}
+# === AKURASI SMA (m = 4) ===
+m <- 4
+library(TTR)
+sma_train <- SMA(as.numeric(train_btc.ts), n = m)
+
+h <- length(test_btc.ts)
+last_sma <- tail(na.omit(sma_train), 1)
+sma_forecast_test <- rep(last_sma, h)
+
+# Train (buang NA awal SMA)
+idx_tr  <- which(!is.na(sma_train))
+y_tr    <- as.numeric(train_btc.ts)[idx_tr]
+yhat_tr <- sma_train[idx_tr]
+SSE_tr  <- sum((y_tr - yhat_tr)^2)
+MSE_tr  <- mean((y_tr - yhat_tr)^2)
+MAPE_tr <- mean(abs((y_tr - yhat_tr) / y_tr)) * 100
+
+# Test
+y_te    <- as.numeric(test_btc.ts)
+yhat_te <- sma_forecast_test
+SSE_te  <- sum((y_te - yhat_te)^2)
+MSE_te  <- mean((y_te - yhat_te)^2)
+MAPE_te <- mean(abs((y_te - yhat_te) / y_te)) * 100
+
+data.frame(
+  Bagian = c("Train (80%)","Test (20%)"),
+  SSE = c(SSE_tr, SSE_te),
+  MSE = c(MSE_tr, MSE_te),
+  MAPE = c(MAPE_tr, MAPE_te)
+)
+
+```
+
+Dalam hal ini nilai MAPE data latih pada metode pemulusan SMA sekitar 2%, nilai ini dapat dikategorikan sebagai nilai akurasi yang sangat baik. Selanjutnya dilakukan perhitungan nilai MAPE data uji pada metode pemulusan SMA.
+
+```{r}
+# === AKURASI DATA UJI (TEST) ===
+y_te    <- as.numeric(test_btc.ts)       # aktual test
+yhat_te <- sma_forecast_test             # hasil ramalan SMA (konstan)
+
+SSE_te  <- sum((y_te - yhat_te)^2)
+MSE_te  <- mean((y_te - yhat_te)^2)
+MAPE_te <- mean(abs((y_te - yhat_te) / y_te)) * 100
+
+akurasi_test_sma <- matrix(c(SSE_te, MSE_te, MAPE_te), ncol = 1)
+row.names(akurasi_test_sma) <- c("SSE", "MSE", "MAPE")
+colnames(akurasi_test_sma) <- c("Akurasi m = 4")
+
+akurasi_test_sma
+
+```
+
+Perhitungan akurasi menggunakan data latih menghasilkan nilai MAPE yang kurang dari 10% sehingga nilai akurasi ini dapat dikategorikan sebagai sangat baik.
+
+### Double Moving Average (DMA)
+
+Metode pemulusan Double Moving Average (DMA) pada dasarnya mirip dengan SMA. Namun demikian, metode ini lebih cocok digunakan untuk pola data trend. Proses pemulusan dengan rata rata dalam metode ini dilakukan sebanyak 2 kali.
+
+-   **Tahap I:**
+
+$$
+S_{1,t} = \frac{1}{m} \sum_{i=t-m+1}^{t} X_i
+$$
+
+-   **Tahap II:**
+
+$$
+S_{2,t} = \frac{1}{m} \sum_{i=t-m+1}^{t} S_{1,i}
+$$
+
+Forecast $h$ langkah ke depan dihitung dengan:
+
+$$
+F_{2,t,t+h} = A_t + B_t \,(h)
+$$
+
+dengan komponen level ($A_t$) dan tren ($B_t$):
+
+$$
+A_t = 2S_{1,t} - S_{2,t}
+\qquad\text{dan}\qquad
+B_t = \frac{2}{m-1}\,\big(S_{1,t} - S_{2,t}\big)
+$$
+
+```{r}
+## ===== DOUBLE MOVING AVERAGE (DMA) untuk BTC =====
+library(TTR)
+
+m <- 4                                   # orde moving average (samakan dgn tugas)
+y_tr <- as.numeric(train_btc.ts)
+y_te <- as.numeric(test_btc.ts)
+h    <- length(y_te)
+
+## 1) MA tingkat-1 dan tingkat-2 pada data latih
+MA1_tr <- SMA(y_tr, n = m)               # moving average pertama
+MA2_tr <- SMA(MA1_tr, n = m)             # moving average dari MA1 (DMA)
+
+## 2) Komponen level (A_t) dan trend (B_t)  — rumus DMA
+# Catatan: valid mulai setelah 2*(m-1) observasi pertama (karena efek NA)
+At_tr <- 2*MA1_tr - MA2_tr
+Bt_tr <- (2/(m-1))*(MA1_tr - MA2_tr)
+
+## 3) Ramalan h-langkah ke depan (untuk data uji) memakai A_t dan B_t terakhir yang valid
+At_last <- tail(na.omit(At_tr), 1)
+Bt_last <- tail(na.omit(Bt_tr), 1)
+dma_fc_test <- At_last + Bt_last * (1:h)   # Ft+h = A_t + B_t * h
+
+## 4) Susun vektor full (train+test) untuk plot ala asprak
+pemulusan1_full <- c(MA1_tr, rep(NA, h))
+pemulusan2_full <- c(MA2_tr, rep(NA, h))
+At_full         <- c(At_tr,  rep(NA, h))
+Bt_full         <- c(Bt_tr,  rep(NA, h))   # biasanya tidak diplot, tapi disiapkan
+ramalan_full    <- c(rep(NA, length(y_tr)), dma_fc_test)
+aktual_full     <- as.numeric(btc.ts)
+
+data.gab2 <- cbind(
+  aktual     = aktual_full,
+  MA1        = pemulusan1_full,
+  MA2        = pemulusan2_full,
+  At         = At_full,
+  Bt         = Bt_full,
+  ramalan    = ramalan_full
+)
+
+## 5) Plot ala asprak (garis aktual + pemulusan + ramalan)
+ts.plot(ts(aktual_full, start = start(btc.ts), frequency = frequency(btc.ts)),
+        xlab="Time Period", ylab="Price",
+        main=paste0("DMA (m=", m, ") – Harga BTC"))
+points(ts(aktual_full, start = start(btc.ts), frequency = frequency(btc.ts)), col="black", cex=0.4)
+lines(ts(pemulusan1_full, start = start(btc.ts), frequency = frequency(btc.ts)), col="blue",  lwd=2)
+lines(ts(pemulusan2_full, start = start(btc.ts), frequency = frequency(btc.ts)), col="green", lwd=2)
+lines(ts(ramalan_full,    start = start(btc.ts), frequency = frequency(btc.ts)), col="red",   lwd=2)
+legend("topleft",
+       legend=c("Aktual","MA-1 (train)","MA-2 (train)","Ramalan (test)"),
+       col=c("black","blue","green","red"), lty=1, lwd=2, bty="n", cex=0.8)
+
+## 6) Akurasi — TRAIN (hitung hanya pada indeks valid: tanpa NA)
+idx_tr_valid <- which(!is.na(At_tr))  # sama dengan validnya MA2_tr
+yhat_tr_dma  <- At_tr[idx_tr_valid]   # pada DMA, pemulusan terbaik di-train = A_t
+y_tr_valid   <- y_tr[idx_tr_valid]
+
+SSE_tr_dma  <- sum( (y_tr_valid - yhat_tr_dma)^2 )
+MSE_tr_dma  <- mean((y_tr_valid - yhat_tr_dma)^2)
+MAPE_tr_dma <- mean(abs((y_tr_valid - yhat_tr_dma)/y_tr_valid))*100
+
+## 7) Akurasi — TEST
+yhat_te_dma <- dma_fc_test
+SSE_te_dma  <- sum( (y_te - yhat_te_dma)^2 )
+MSE_te_dma  <- mean((y_te - yhat_te_dma)^2)
+MAPE_te_dma <- mean(abs((y_te - yhat_te_dma)/y_te))*100
+
+data.frame(
+  Bagian = c("Train (80%)","Test (20%)"),
+  SSE = c(SSE_tr_dma, SSE_te_dma),
+  MSE = c(MSE_tr_dma, MSE_te_dma),
+  MAPE = c(MAPE_tr_dma, MAPE_te_dma)
+)
+
+```
+
+Hasil pemulusan menggunakan metode DMA divisualisasikan sebagai berikut
+
+```{r}
+# (opsional) replot ringkas
+ts.plot(btc.ts, xlab="Time Period", ylab="Price",
+        main=paste0("DMA (m=", m, ") – Harga BTC"))
+points(btc.ts, col="black", cex=0.4)
+lines(ts(c(MA1_tr, rep(NA, length(test_btc.ts))), start=start(btc.ts), frequency=frequency(btc.ts)),
+      col="blue", lwd=2)
+lines(ts(c(MA2_tr, rep(NA, length(test_btc.ts))), start=start(btc.ts), frequency=frequency(btc.ts)),
+      col="green", lwd=2)
+lines(ts(c(rep(NA, length(train_btc.ts)), dma_fc_test), start=start(btc.ts), frequency=frequency(btc.ts)),
+      col="red", lwd=2)
+legend("topleft", c("Aktual","MA-1 (train)","MA-2 (train)","Forecast (test)"),
+       col=c("black","blue","green","red"), lty=1, lwd=2, bty="n", cex=0.8)
+
+
+```
+
+Selanjutnya perhitungan akurasi dilakukan baik pada data latih maupun data uji. Perhitungan akurasi dilakukan dengan ukuran akurasi SSE, MSE dan MAPE.
+
+
+Perhitungan akurasi pada data latih menggunakan nilai MAPE menghasilkan nilai MAPE yang kurang dari 10% sehingga dikategorikan sangat baik. Selanjutnya, perhitungan nilai akurasi dilakukan pada data uji.
+
+
+Perhitungan akurasi menggunakan data latih menghasilkan nilai MAPE yang kurang dari 10% sehingga nilai akurasi ini dapat dikategorikan sebagai sangat baik.
+
+Pada data latih, metode SMA lebih baik dibandingkan dengan metode DMA, sedangkan pada data uji, metode DMA lebih baik dibandingkan SMA.
+
+## Single Exponential Smoothing & Double Exponential Smoothing
+
+Metode Exponential Smoothing merupakan metode pemulusan deret waktu dengan memberikan bobot yang menurun secara eksponensial pada data historis, di mana nilai terbaru mendapat bobot lebih besar dibanding nilai yang lebih lama. Metode ini menggunakan satu atau lebih parameter pemulusan yang secara langsung menentukan besar kecilnya bobot setiap pengamatan. Pemilihan parameter yang tepat akan sangat berpengaruh terhadap hasil ramalan. Secara umum, Exponential Smoothing dibedakan menjadi dua jenis, yaitu model tunggal (single) yang digunakan untuk data tanpa tren maupun musiman, serta model ganda (double) yang mampu menangkap adanya tren pada data.
+
+### Pembagian Data
+
+Pembagian data latih dan data uji dilakukan dengan perbandingan 80% data latih dan 20% data uji.
+
+```{r}
+
+n <- nrow(data_btc_subset)
+n_train <- floor(0.8 * n)
+
+training_btc <- data_btc_subset[1:n_train, ]
+testing_btc  <- data_btc_subset[(n_train+1):n, ]
+
+train_btc.ts <- ts(training_btc$price, start=c(2020,1), frequency=365)
+test_btc.ts  <- ts(testing_btc$price, start=c(2020,1), frequency=365)
+
+
+```
+
+## Single Exponential Smoothing
+
+
+Eksplorasi dilakukan dengan membuat plot data deret waktu untuk keseluruhan data, data latih, dan data uji.
+```{r}
+library(forecast)
+
+h <- length(test_btc.ts)
+
+# Fit hanya pada data latih
+fit_ses <- ses(train_btc.ts, h = h, initial = "simple")  # atau "optimal"
+
+# Nilai pemulusan (fitted) untuk TRAIN
+ses_fit_tr <- as.numeric(fitted(fit_ses))  # panjang = length(train_btc.ts)
+
+# Ramalan untuk TEST (horizon = panjang test)
+ses_fc_te  <- as.numeric(fit_ses$mean)     # panjang = h
+
+# ===== Akurasi =====
+# TRAIN
+y_tr   <- as.numeric(train_btc.ts)
+e_tr   <- y_tr - ses_fit_tr
+SSE_tr_ses  <- sum(e_tr^2)
+MSE_tr_ses  <- mean(e_tr^2)
+MAPE_tr_ses <- mean(abs(e_tr / y_tr)) * 100
+
+# TEST
+y_te   <- as.numeric(test_btc.ts)
+e_te   <- y_te - ses_fc_te
+SSE_te_ses  <- sum(e_te^2)
+MSE_te_ses  <- mean(e_te^2)
+MAPE_te_ses <- mean(abs(e_te / y_te)) * 100
+
+data.frame(
+  Bagian = c("Train (80%)","Test (20%)"),
+  SSE = c(SSE_tr_ses, SSE_te_ses),
+  MSE = c(MSE_tr_ses, MSE_te_ses),
+  MAPE = c(MAPE_tr_ses, MAPE_te_ses)
+)
+
+# ===== Plot ala asprak =====
+ts.plot(btc.ts, xlab="Time Period", ylab="Price",
+        main="Single Exponential Smoothing (SES) – Harga BTC")
+points(btc.ts, cex=0.4)
+# garis fitted di TRAIN
+lines(ts(c(ses_fit_tr, rep(NA, h)), start=start(btc.ts), frequency=frequency(btc.ts)),
+      col="blue", lwd=2)
+# garis forecast di TEST
+lines(ts(c(rep(NA, length(train_btc.ts)), ses_fc_te),
+         start=start(btc.ts), frequency=frequency(btc.ts)), col="red", lwd=2)
+legend("topleft", c("Aktual","Fitted (train)","Forecast (test)"),
+       col=c("black","blue","red"), lty=1, lwd=2, bty="n", cex=0.8)
+
+```
+
+
+
+Single Exponential Smoothing (SES) adalah metode peramalan deret waktu yang dikembangkan untuk mengatasi kelemahan Moving Average. Jika pada Moving Average setiap data periode sebelumnya dianggap memiliki bobot yang sama, maka SES memberikan bobot yang semakin mengecil secara eksponensial terhadap data lama, sehingga data terbaru diberi bobot lebih besar.
+
+Single Exponential Smoothing merupakan metode pemulusan yang tepat digunakan untuk data dengan pola stasioner atau konstan.
+
+Nilai pemulusan pada periode ke-t didapat dari persamaan:
+
+$$ \tilde{y}_T=\lambda y_t+(1-\lambda)\tilde{y}_{T-1} $$
+
+Nilai parameter $\lambda$ adalah nilai antara 0 dan 1.
+
+Nilai pemulusan periode ke-t bertindak sebagai nilai ramalan pada periode ke-$(T+\tau)$.
+
+$$ \tilde{y}_{T+\tau}(T)=\tilde{y}_T $$
+
+Pemulusan dengan metode SES dapat dilakukan dengan dua fungsi dari *packages* berbeda, yaitu (1) fungsi `ses()` dari *packages* `forecast` dan (2) fungsi `HoltWinters` dari *packages* `stats` .
+
+```{r}
+#Cara 1 (fungsi ses)
+ses.1 <- ses(train_btc.ts, h = 10, alpha = 0.2)
+plot(ses.1)
+ses.1
+
+ses.2<- ses(train_btc.ts, h = 10, alpha = 0.7)
+plot(ses.2)
+ses.2
+```
+
+Pada fungsi `ses()` , terdapat beberapa argumen yang umum digunakan, yaitu
+
+-   `y` : nilai data deret waktu
+
+-   `alpha` : parameter pemulusan utama (0–1), mengatur bobot data terbaru vs data lama.
+
+-   `beta` : parameter pemulusan tren.
+
+-   `gamma` : parameter pemulusan musiman.
+
+-   `h` : jumlah periode ke depan yang ingin diramalkan (forecast horizon).
+
+    Kasus di atas merupakan contoh inisialisasi nilai parameter $\lambda$ dengan nilai `alpha` 0,2 dan 0,7 dan banyak periode data yang akan diramalkan adalah sebanyak 10 periode.
+
+Untuk mendapatkan gambar hasil pemulusan pada data latih dengan fungsi `ses()` , perlu digunakan fungsi `autoplot()` dan `autolayer()` dari *library packages* `ggplot2` .
+
+```{r}
+autoplot(ses.1) +
+  autolayer(fitted(ses.1), series="Fitted") +
+  ylab("Membaca") + xlab("Periode")
+```
+
+Selanjutnya akan digunakan fungsi `HoltWinters()` dengan nilai inisialisasi parameter dan panjang periode peramalan yang sama dengan fungsi `ses()` .
+
+```{r}
+#Cara 2 (fungsi Holtwinter)
+ses1<- HoltWinters(train_btc.ts, gamma = FALSE, beta = FALSE, alpha = 0.2)
+plot(ses1)
+
+#ramalan
+ramalan1<- forecast(ses1, h=10)
+ramalan1
+
+ses2<- HoltWinters(train_btc.ts, gamma = FALSE, beta = FALSE, alpha = 0.7)
+plot(ses2)
+
+#ramalan
+ramalan2<- forecast(ses2, h=10)
+ramalan2
+```
+
+Fungsi `HoltWinters` memiliki argumen yang sama dengan fungsi `ses()` . Argumen-argumen kedua fungsi dapat dilihat lebih lanjut dengan `?ses()` atau `?HoltWinters` .
+
+Nilai parameter $\alpha$ dari kedua fungsi dapat dioptimalkan menyesuaikan dari *error*-nya paling minimumnya. Caranya adalah dengan membuat parameter $\alpha =$ `NULL` .
+
+```{r}
+#SES
+ses.opt <- ses(train_btc.ts, h = 10, alpha = NULL)
+plot(ses.opt)
+ses.opt
+
+#Lamda Optimum Holt Winter
+HWopt<- HoltWinters(train_btc.ts, gamma = FALSE, beta = FALSE,alpha = NULL)
+HWopt
+plot(HWopt)
+
+#ramalan
+ramalanopt<- forecast(HWopt, h=10)
+ramalanopt
+```
+
+Setelah dilakukan peramalan, akan dilakukan perhitungan keakuratan hasil peramalan. Perhitungan akurasi ini dilakukan baik pada data latih dan data uji.
+
+#### Akurasi Data Latih
+
+Perhitungan akurasi data dapat dilakukan dengan cara langsung maupun manual. Secara langsung, nilai akurasi dapat diambil dari objek yang tersimpan pada hasil SES, yaitu *sum of squared errors* (SSE). Nilai akurasi lain dapat dihitung pula dari nilai SSE tersebut.
+
+```{r}
+#Keakuratan Metode
+#Pada data training
+
+# SES dengan alpha = 0.2
+SSE1<-ses1$SSE
+MSE1<-ses1$SSE/length(btc.ts)
+RMSE1<-sqrt(MSE1)
+
+akurasi1 <- matrix(c(SSE1,MSE1,RMSE1))
+row.names(akurasi1)<- c("SSE", "MSE", "RMSE")
+colnames(akurasi1) <- c("Akurasi lamda=0.2")
+akurasi1
+
+# SES dengan alpha = 0.7
+SSE2<-ses2$SSE
+MSE2<-ses2$SSE/length(btc.ts)
+RMSE2<-sqrt(MSE2)
+
+akurasi2 <- matrix(c(SSE2,MSE2,RMSE2))
+row.names(akurasi2)<- c("SSE", "MSE", "RMSE")
+colnames(akurasi2) <- c("Akurasi lamda=0.7")
+akurasi2
+```
+
+```{r}
+library(forecast)
+
+## ===== Alpha = 0.2 =====
+ramalan1 <- ses(train_btc.ts, h = length(test_btc.ts), alpha = 0.2, initial = "simple")
+
+fitted1  <- ramalan1$fitted
+sisaan1  <- residuals(ramalan1)
+
+# SSE, MSE, MAPE
+SSE.1 <- sum(sisaan1^2)
+MSE.1 <- mean(sisaan1^2)
+MAPE.1 <- mean(abs(sisaan1 / as.numeric(train_btc.ts))) * 100
+
+akurasi.1 <- matrix(c(SSE.1, MSE.1, MAPE.1))
+row.names(akurasi.1) <- c("SSE","MSE","MAPE")
+colnames(akurasi.1) <- c("Akurasi α=0.2")
+akurasi.1
+
+
+## ===== Alpha = 0.7 =====
+ramalan2 <- ses(train_btc.ts, h = length(test_btc.ts), alpha = 0.7, initial = "simple")
+
+fitted2  <- ramalan2$fitted
+sisaan2  <- residuals(ramalan2)
+
+# SSE, MSE, MAPE
+SSE.2 <- sum(sisaan2^2)
+MSE.2 <- mean(sisaan2^2)
+MAPE.2 <- mean(abs(sisaan2 / as.numeric(train_btc.ts))) * 100
+
+akurasi.2 <- matrix(c(SSE.2, MSE.2, MAPE.2))
+row.names(akurasi.2) <- c("SSE","MSE","MAPE")
+colnames(akurasi.2) <- c("Akurasi α=0.7")
+akurasi.2
+
+```
+
+Berdasarkan nilai SSE, MSE, RMSE, dan MAPE di antara kedua parameter, nilai parameter $\lambda=0,2$ menghasilkan akurasi yang lebih baik dibanding $\lambda=0,7$ . Hal ini dilihat dari nilai masing-masing ukuran akurasi yang lebih kecil. Berdasarkan nilai MAPE-nya, hasil ini dapat dikategorikan sebagai peramalan sangat baik.
+
+#### Akurasi Data Uji
+
+Akurasi data uji dapat dihitung dengan cara yang hampir sama dengan perhitungan akurasi data latih.
+
+```{r}
+library(forecast)
+
+# --- pastikan horizon test ---
+h <- length(test_btc.ts)
+
+# --- model SES: alpha 0.2, 0.7, dan optimal ---
+ramalan1   <- ses(train_btc.ts, h = h, alpha = 0.2, initial = "simple")
+ramalan2   <- ses(train_btc.ts, h = h, alpha = 0.7, initial = "simple")
+ramalanopt <- ses(train_btc.ts, h = h)  # alpha optimal (default)
+
+# --- vektor aktual test ---
+y_test <- as.numeric(test_btc.ts)
+
+# --- vektor ramalan untuk test ---
+fc1   <- as.numeric(ramalan1$mean)
+fc2   <- as.numeric(ramalan2$mean)
+fcopt <- as.numeric(ramalanopt$mean)
+
+# --- error (forecast - actual) ---
+e1   <- fc1   - y_test
+e2   <- fc2   - y_test
+eopt <- fcopt - y_test
+
+# --- SSE / MSE / RMSE / MAPE (abaikan NA jika ada) ---
+SSEtesting1  <- sum(e1^2,  na.rm = TRUE)
+MSEtesting1  <- mean(e1^2, na.rm = TRUE)
+RMSEtesting1 <- sqrt(MSEtesting1)
+MAPEtesting1 <- mean(abs(e1 / y_test), na.rm = TRUE) * 100
+
+SSEtesting2  <- sum(e2^2,  na.rm = TRUE)
+MSEtesting2  <- mean(e2^2, na.rm = TRUE)
+RMSEtesting2 <- sqrt(MSEtesting2)
+MAPEtesting2 <- mean(abs(e2 / y_test), na.rm = TRUE) * 100
+
+SSEtestingopt  <- sum(eopt^2,  na.rm = TRUE)
+MSEtestingopt  <- mean(eopt^2, na.rm = TRUE)
+RMSEtestingopt <- sqrt(MSEtestingopt)
+MAPEtestingopt <- mean(abs(eopt / y_test), na.rm = TRUE) * 100
+
+# --- tabel ringkas (gaya matriks seperti asprak) ---
+akurasitesting_SSE  <- matrix(c(SSEtesting1,  SSEtesting2,  SSEtestingopt),
+                              nrow = 3, dimnames = list(c("SSE1","SSE2","SSEopt"), "Nilai"))
+akurasitesting_MSE  <- matrix(c(MSEtesting1,  MSEtesting2,  MSEtestingopt),
+                              nrow = 3, dimnames = list(c("MSE1","MSE2","MSEopt"), "Nilai"))
+akurasitesting_RMSE <- matrix(c(RMSEtesting1, RMSEtesting2, RMSEtestingopt),
+                              nrow = 3, dimnames = list(c("RMSE1","RMSE2","RMSEopt"), "Nilai"))
+akurasitesting_MAPE <- matrix(c(MAPEtesting1, MAPEtesting2, MAPEtestingopt),
+                              nrow = 3, dimnames = list(c("MAPE1","MAPE2","MAPEopt"), "Nilai"))
+
+akurasitesting_SSE
+akurasitesting_MSE
+akurasitesting_RMSE
+akurasitesting_MAPE
+
+# (opsional) versi data.frame gabungan
+results_test <- data.frame(
+  Model = c("SES α=0.2","SES α=0.7","SES optimal"),
+  SSE   = c(SSEtesting1,  SSEtesting2,  SSEtestingopt),
+  MSE   = c(MSEtesting1,  MSEtesting2,  MSEtestingopt),
+  RMSE  = c(RMSEtesting1, RMSEtesting2, RMSEtestingopt),
+  MAPE  = c(MAPEtesting1, MAPEtesting2, MAPEtestingopt)
+)
+results_test
+
+
+```
+
+Selain dengan cara di atas, perhitungan nilai akurasi dapat menggunakan fungsi `accuracy()` dari *package* `forecast` . Penggunaannya yaitu dengan menuliskan `accuracy(hasil ramalan, kondisi aktual)` . Contohnya adalah sebagai berikut.
+
+```{r}
+
+library(forecast)
+
+## 1) Bangun satu seri ts utuh (tanpa mengandalkan tanggal)
+freq <- 365
+btc.ts <- ts(as.numeric(data_btc_subset$price), frequency = freq, start = c(1, 1))
+
+## 2) Split 80/20 dengan window() supaya indeks waktu rapi & kontigu
+n <- length(btc.ts)
+n_train <- floor(0.8 * n)
+train_btc.ts <- window(btc.ts, end   = time(btc.ts)[n_train])
+test_btc.ts  <- window(btc.ts, start = time(btc.ts)[n_train + 1])
+
+## 3) Fit SES (contoh alpha 0.2, 0.7, dan optimal) di TRAIN
+h <- length(test_btc.ts)
+ramalan1   <- ses(train_btc.ts, h = h, alpha = 0.2, initial = "simple")
+ramalan2   <- ses(train_btc.ts, h = h, alpha = 0.7, initial = "simple")
+ramalanopt <- ses(train_btc.ts, h = h)  # alpha optimal
+
+## 4) Sekarang accuracy() akan jalan karena waktu train-test nyambung
+accuracy(ramalan1,   test_btc.ts)
+accuracy(ramalan2,   test_btc.ts)
+accuracy(ramalanopt, test_btc.ts)
+
+
+```
+
+## *Double Exponential Smoothing* (DES)
+
+Metode pemulusan *Double Exponential Smoothing* (DES) digunakan untuk data yang memiliki pola tren. Metode DES adalah metode semacam SES, hanya saja dilakukan dua kali, yaitu pertama untuk tahapan 'level' dan kedua untuk tahapan 'tren'. Pemulusan menggunakan metode ini akan menghasilkan peramalan tidak konstan untuk periode berikutnya.
+
+Pemulusan dengan metode DES kali ini akan menggunakan fungsi `HoltWinters()` . Jika sebelumnya nilai argumen `beta` dibuat `FALSE` , kali ini argumen tersebut akan diinisialisasi bersamaan dengan nilai `alpha` .
+
+```{r}
+#Lamda=0.2 dan gamma=0.2
+des.1<- HoltWinters(train_btc.ts, gamma = FALSE, beta = 0.2, alpha = 0.2)
+plot(des.1)
+
+#ramalan
+ramalandes1<- forecast(des.1, h=10)
+ramalandes1
+
+#Lamda=0.6 dan gamma=0.3
+des.2<- HoltWinters(train_btc.ts, gamma = FALSE, beta = 0.3, alpha = 0.6)
+plot(des.2)
+
+#ramalan
+ramalandes2<- forecast(des.2, h=10)
+ramalandes2
+```
+
+Selanjutnya jika ingin membandingkan plot data latih dan data uji adalah sebagai berikut.
+
+```{r}
+plot(btc.ts)
+lines(des.1$fitted[,1], lty=2, col="blue")
+lines(ramalandes1$mean, col="red")
+```
+
+Untuk mendapatkan nilai parameter optimum dari DES, argumen `alpha` dan `beta` dapat dibuat `NULL` seperti berikut.
+
+```{r}
+#Lamda dan gamma optimum
+des.opt<- HoltWinters(train_btc.ts, gamma = FALSE)
+des.opt
+plot(des.opt)
+
+#ramalan
+ramalandesopt<- forecast(des.opt, h=10)
+ramalandesopt
+```
+
+Selanjutnya akan dilakukan perhitungan akurasi pada data latih maupun data uji dengan ukuran akurasi SSE, MSE dan MAPE.
+
+#### Akurasi Data Latih
+
+```{r}
+#Akurasi Data Training
+ssedes.train1<-des.1$SSE
+msedes.train1<-ssedes.train1/length(train_btc.ts)
+sisaandes1<-ramalandes1$residuals
+head(sisaandes1)
+
+mapedes.train1 <- sum(abs(sisaandes1[3:length(train_btc.ts)]/train_btc.ts[3:length(train_btc.ts)])
+                      *100)/length(train_btc.ts)
+
+akurasides.1 <- matrix(c(ssedes.train1,msedes.train1,mapedes.train1))
+row.names(akurasides.1)<- c("SSE", "MSE", "MAPE")
+colnames(akurasides.1) <- c("Akurasi lamda=0.2 dan gamma=0.2")
+akurasides.1
+
+ssedes.train2<-des.2$SSE
+msedes.train2<-ssedes.train2/length(train_btc.ts)
+sisaandes2<-ramalandes2$residuals
+head(sisaandes2)
+
+mapedes.train2 <- sum(abs(sisaandes2[3:length(train_btc.ts)]/train_btc.ts[3:length(train_btc.ts)])
+                      *100)/length(train_btc.ts)
+
+akurasides.2 <- matrix(c(ssedes.train2,msedes.train2,mapedes.train2))
+row.names(akurasides.2)<- c("SSE", "MSE", "MAPE")
+colnames(akurasides.2) <- c("Akurasi lamda=0.6 dan gamma=0.3")
+akurasides.2
+```
+
+Hasil akurasi dari data latih didapatkan skenario 2 dengan lamda=0.6 dan gamma=0.3 memiliki hasil yang lebih baik. Namun untuk kedua skenario dapat dikategorikan peramalan sangat baik berdasarkan nilai MAPE-nya.
+
+#### Akurasi Data Uji
+
+```{r}
+# Akurasi Data Testing DES (Double Exponential Smoothing)
+
+selisihdes1 <- as.numeric(ramalandes1$mean) - as.numeric(test_btc.ts)
+SSEtestingdes1  <- sum(selisihdes1^2)
+MSEtestingdes1  <- SSEtestingdes1/length(test_btc.ts)
+MAPEtestingdes1 <- sum(abs(selisihdes1/as.numeric(test_btc.ts))*100)/length(test_btc.ts)
+
+selisihdes2 <- as.numeric(ramalandes2$mean) - as.numeric(test_btc.ts)
+SSEtestingdes2  <- sum(selisihdes2^2)
+MSEtestingdes2  <- SSEtestingdes2/length(test_btc.ts)
+MAPEtestingdes2 <- sum(abs(selisihdes2/as.numeric(test_btc.ts))*100)/length(test_btc.ts)
+
+selisihdesopt <- as.numeric(ramalandesopt$mean) - as.numeric(test_btc.ts)
+SSEtestingdesopt  <- sum(selisihdesopt^2)
+MSEtestingdesopt  <- SSEtestingdesopt/length(test_btc.ts)
+MAPEtestingdesopt <- sum(abs(selisihdesopt/as.numeric(test_btc.ts))*100)/length(test_btc.ts)
+
+akurasitestingdes <-
+  matrix(c(SSEtestingdes1, MSEtestingdes1, MAPEtestingdes1,
+           SSEtestingdes2, MSEtestingdes2, MAPEtestingdes2,
+           SSEtestingdesopt, MSEtestingdesopt, MAPEtestingdesopt),
+         nrow=3, ncol=3)
+row.names(akurasitestingdes) <- c("SSE", "MSE", "MAPE")
+colnames(akurasitestingdes) <- c("des ske1", "des ske2", "des opt")
+akurasitestingdes
+
+```
+
+#### Perbandingan SES dan DES
+
+```{r}
+MSEfull <-
+  matrix(c(MSEtesting1,MSEtesting2,MSEtestingopt,MSEtestingdes1,MSEtestingdes2,
+           MSEtestingdesopt),nrow=3,ncol=2)
+row.names(MSEfull)<- c("ske 1", "ske 2", "ske opt")
+colnames(MSEfull) <- c("ses","des")
+MSEfull
+```
+
+Kedua metode dapat dibandingkan dengan menggunakan ukuran akurasi yang sama. Contoh di atas adalah perbandingan kedua metode dengan ukuran akurasi MSE. Hasilnya didapatkan metode DES lebih baik dibandingkan metode SES dilihat dari MSE yang lebih kecil nilainya.
+
+## Pemulusan Data Musiman
+
+Pertama impor kembali data baru untuk latihan data musiman.
+
+```{r}
+# Import data (langsung dari GitHub temanmu)
+library(rio)
+data_btc <- import("https://raw.githubusercontent.com/Raitozzz/MPDW-2025/main/Kelompok%2010/Harga%20btc_kelompok%2010.csv")
+
+# Ambil 1/5 bagian akhir saja
+data_btc_subset <- tail(data_btc, nrow(data_btc)/5)
+
+# Ubah ke time series
+btc.ts <- ts(data_btc_subset$price, start = c(2020, 1), frequency = 365)
+
+# Cek struktur
+summary(btc.ts)
+
+
+```
+
+Selanjutnya melakukan pembagian data dan mengubahnya menjadi data deret waktu.
+
+```{r}
+#membagi data menjadi training dan testing
+training<-data_btc_subset[1:192,2]
+testing<-data_btc_subset[193:241,2]
+training.ts<-ts(training, frequency = 13)
+testing.ts<-ts(testing, frequency = 13)
+```
+
+Kemudian akan dilakukan eskplorasi dengan plot data deret waktu sebagai berikut.
+
+```{r}
+#Membuat plot time series
+# Plot data latih
+plot(training.ts, col="blue", main="Plot data latih")
+points(training.ts)
+
+# Plot data uji
+plot(testing.ts, col="green", main="Plot data uji")
+points(testing.ts)
+
+```
+
+Metode Holt-Winter untuk peramalan data musiman menggunakan tiga persamaan pemulusan yang terdiri atas persamaan untuk level $(L_t)$, trend $(B_t)$, dan komponen seasonal / musiman $(S_t)$ dengan parameter pemulusan berupa $\alpha$, $\beta$, dan $\gamma$. Metode Holt-Winter musiman terbagi menjadi dua, yaitu metode aditif dan metode multiplikatif. Perbedaan persamaan dan contoh datanya adalah sebagai berikut.
+
+![](images/clipboard-2239154957.png)
+
+![](images/clipboard-1209508415.png)
+
+Pemulusan data musiman dengan metode Winter dilakukan menggunakan fungsi `HoltWinters()` dengan memasukkan argumen tambahan, yaitu `gamma()` dan `seasonal()` . Arguman `seasonal()` diinisialisasi menyesuaikan jenis musiman, aditif atau multiplikatif.
+
+### Winter Aditif
+
+Perhitungan dengan model aditif dilakukan jika plot data asli menunjukkan fluktuasi musiman yang relatif stabil (konstan).
+
+#### Pemulusan
+
+```{r}
+#Pemulusan dengan winter aditif 
+winter1 <- HoltWinters(training.ts,alpha=0.2,beta=0.1,gamma=0.1,seasonal = "additive")
+winter1$fitted
+xhat1 <- winter1$fitted[,2]
+
+winter1.opt<- HoltWinters(training.ts, alpha= NULL,  beta = NULL, gamma = NULL, seasonal = "additive")
+winter1.opt
+winter1.opt$fitted
+xhat1.opt <- winter1.opt$fitted[,2]
+```
+
+#### Peramalan
+
+```{r}
+#Forecast
+forecast1 <- predict(winter1, n.ahead = 49)
+forecast1.opt <- predict(winter1.opt, n.ahead = 49)
+```
+
+#### Plot Deret Waktu
+
+```{r}
+#Plot time series
+plot(training.ts,main="Winter 0.2;0.1;0.1",type="l",col="black",
+     xlim=c(1,25),pch=12)
+lines(xhat1,type="l",col="red")
+lines(xhat1.opt,type="l",col="blue")
+lines(forecast1,type="l",col="red")
+lines(forecast1.opt,type="l",col="blue")
+legend("topleft",c("Actual Data",expression(paste(winter1)),
+                   expression(paste(winter1.opt))),cex=0.5,
+       col=c("black","red","blue"),lty=1)
+```
+
+#### Akurasi Data Latih
+
+```{r}
+#Akurasi data training
+SSE1<-winter1$SSE
+MSE1<-winter1$SSE/length(training.ts)
+RMSE1<-sqrt(MSE1)
+akurasi1 <- matrix(c(SSE1,MSE1,RMSE1))
+row.names(akurasi1)<- c("SSE", "MSE", "RMSE")
+colnames(akurasi1) <- c("Akurasi")
+akurasi1
+
+SSE1.opt<-winter1.opt$SSE
+MSE1.opt<-winter1.opt$SSE/length(training.ts)
+RMSE1.opt<-sqrt(MSE1.opt)
+akurasi1.opt <- matrix(c(SSE1.opt,MSE1.opt,RMSE1.opt))
+row.names(akurasi1.opt)<- c("SSE1.opt", "MSE1.opt", "RMSE1.opt")
+colnames(akurasi1.opt) <- c("Akurasi")
+akurasi1.opt
+
+akurasi1.train = data.frame(Model_Winter = c("Winter 1","Winter1 optimal"),
+                            Nilai_SSE=c(SSE1,SSE1.opt),
+                            Nilai_MSE=c(MSE1,MSE1.opt),Nilai_RMSE=c(RMSE1,RMSE1.opt))
+akurasi1.train
+```
+
+#### Akurasi Data Uji
+
+```{r}
+#Akurasi Data Testing
+forecast1<-data.frame(forecast1)
+testing.ts<-data.frame(testing.ts)
+selisih1<-forecast1-testing.ts
+SSEtesting1<-sum(selisih1^2)
+MSEtesting1<-SSEtesting1/length(testing.ts)
+
+forecast1.opt<-data.frame(forecast1.opt)
+selisih1.opt<-forecast1.opt-testing.ts
+SSEtesting1.opt<-sum(selisih1.opt^2)
+MSEtesting1.opt<-SSEtesting1.opt/length(testing.ts)
+```
+
+```{r}
+akurasi_testing <- data.frame(
+  Model = c("Model1", "Model Optimum"),
+  SSE   = c(SSEtesting1, SSEtesting1.opt),
+  MSE   = c(MSEtesting1, MSEtesting1.opt)
+)
+
+akurasi_testing
+
+```
+
+### Winter Multiplikatif
+
+Model multiplikatif digunakan cocok digunakan jika plot data asli menunjukkan fluktuasi musiman yang bervariasi.
+
+#### Pemulusan
+
+```{r}
+#Pemulusan dengan winter multiplikatif 
+winter2 <- HoltWinters(training.ts,alpha=0.2,beta=0.1,gamma=0.3,seasonal = "multiplicative")
+winter2$fitted
+xhat2 <- winter2$fitted[,2]
+
+winter2.opt<- HoltWinters(training.ts, alpha= NULL,  beta = NULL, gamma = NULL, seasonal = "multiplicative")
+winter2.opt$fitted
+xhat2.opt <- winter2.opt$fitted[,2]
+```
+
+#### Peramalan
+
+```{r}
+#Forecast
+forecast2 <- predict(winter2, n.ahead = 49)
+forecast2.opt <- predict(winter2.opt, n.ahead = 49)
+```
+
+#### Plot Deret Waktu
+
+```{r}
+#Plot time series
+plot(training.ts,main="Winter 0.2;0.1;0.1",type="l",col="black",
+     xlim=c(1,25),pch=12)
+lines(xhat2,type="l",col="red")
+lines(xhat2.opt,type="l",col="blue")
+lines(forecast2,type="l",col="red")
+lines(forecast2.opt,type="l",col="blue")
+legend("topleft",c("Actual Data",expression(paste(winter2)),
+                   expression(paste(winter2.opt))),cex=0.5,
+       col=c("black","red","blue"),lty=1)
+```
+
+#### Akurasi Data Latih
+
+```{r}
+#Akurasi data training
+SSE2<-winter2$SSE
+MSE2<-winter2$SSE/length(training.ts)
+RMSE2<-sqrt(MSE2)
+akurasi1 <- matrix(c(SSE2,MSE2,RMSE2))
+row.names(akurasi1)<- c("SSE2", "MSE2", "RMSE2")
+colnames(akurasi1) <- c("Akurasi lamda=0.2")
+akurasi1
+
+SSE2.opt<-winter2.opt$SSE
+MSE2.opt<-winter2.opt$SSE/length(training.ts)
+RMSE2.opt<-sqrt(MSE2.opt)
+akurasi1.opt <- matrix(c(SSE2.opt,MSE2.opt,RMSE2.opt))
+row.names(akurasi1.opt)<- c("SSE2.opt", "MSE2.opt", "RMSE2.opt")
+colnames(akurasi1.opt) <- c("Akurasi")
+akurasi1.opt
+
+akurasi2.train = data.frame(Model_Winter = c("Winter 1","winter2 optimal"),
+                            Nilai_SSE=c(SSE2,SSE2.opt),
+                            Nilai_MSE=c(MSE2,MSE2.opt),Nilai_RMSE=c(RMSE2,RMSE2.opt))
+akurasi2.train
+```
+
+#### Akurasi Data Uji
+
+```{r}
+#Akurasi Data Testing
+forecast2<-data.frame(forecast2)
+testing.ts<-data.frame(testing.ts)
+selisih2<-forecast2-testing.ts
+SSEtesting2<-sum(selisih2^2)
+MSEtesting2<-SSEtesting2/length(testing.ts)
+
+forecast2.opt<-data.frame(forecast2.opt)
+selisih2.opt<-forecast2.opt-testing.ts
+SSEtesting2.opt<-sum(selisih2.opt^2)
+MSEtesting2.opt<-SSEtesting2.opt/length(testing.ts)
+```
+
+```{r}
+# Atau rapikan dalam tabel
+akurasi_testing2 <- data.frame(
+  Model = c("Model2", "Model2 Optimal"),
+  SSE   = c(SSEtesting2, SSEtesting2.opt),
+  MSE   = c(MSEtesting2, MSEtesting2.opt)
+)
+
+akurasi_testing2
+```
+
+##Menentukan Metode Terbaik
+```{r}
+## === REKAP MAPE SEMUA METODE (OTOMATIS) ===
+
+# helper biar aman ke berbagai tipe objek (ts, vector, data.frame)
+safe_numeric <- function(x) {
+  if (is.null(x)) return(numeric())
+  if (is.ts(x) || is.vector(x)) return(as.numeric(x))
+  if (is.matrix(x) || is.data.frame(x)) return(as.numeric(as.matrix(x)))
+  suppressWarnings(as.numeric(x))
+}
+safe_mape <- function(actual, forecast) {
+  a <- safe_numeric(actual); f <- safe_numeric(forecast)
+  n <- min(length(a), length(f))
+  if (n == 0) return(NA_real_)
+  a <- a[seq_len(n)]; f <- f[seq_len(n)]
+  ok <- is.finite(a) & is.finite(f) & (a != 0)
+  if (!any(ok)) return(NA_real_)
+  mean(abs((f[ok] - a[ok]) / a[ok])) * 100
+}
+
+# actual test: prioritaskan test_btc.ts; kalau nggak ada, pakai testing.ts (seasonal)
+act_test <- if (exists("test_btc.ts")) safe_numeric(test_btc.ts) else if (exists("testing.ts")) safe_numeric(testing.ts) else numeric()
+
+rows <- list()
+
+# --- SMA / DMA ---
+if (exists("sma_forecast_test")) rows[["SMA m=4"]] <- safe_mape(act_test, sma_forecast_test)
+if (exists("dma_fc_test"))       rows[["DMA m=4"]] <- safe_mape(act_test, dma_fc_test)
+
+# --- SES ---
+if (exists("ramalan1"))    rows[["SES α=0.2"]]   <- safe_mape(act_test, ramalan1$mean)
+if (exists("ramalan2"))    rows[["SES α=0.7"]]   <- safe_mape(act_test, ramalan2$mean)
+if (exists("ramalanopt"))  rows[["SES optimal"]] <- safe_mape(act_test, ramalanopt$mean)
+
+# --- DES (Holt) ---
+if (exists("ramalandes1"))   rows[["DES α=0.2, β=0.2"]] <- safe_mape(act_test, ramalandes1$mean)
+if (exists("ramalandes2"))   rows[["DES α=0.6, β=0.3"]] <- safe_mape(act_test, ramalandes2$mean)
+if (exists("ramalandesopt")) rows[["DES optimal"]]      <- safe_mape(act_test, ramalandesopt$mean)
+
+# --- Winter (seasonal) — pakai testing.ts seasonal kalau ada ---
+if (exists("forecast1") && exists("testing.ts"))      rows[["Winter Additive"]]       <- safe_mape(testing.ts, forecast1)
+if (exists("forecast1.opt") && exists("testing.ts"))  rows[["Winter Additive Opt"]]   <- safe_mape(testing.ts, forecast1.opt)
+if (exists("forecast2") && exists("testing.ts"))      rows[["Winter Multiplicative"]] <- safe_mape(testing.ts, forecast2)
+if (exists("forecast2.opt") && exists("testing.ts"))  rows[["Winter Multiplicative Opt"]] <- safe_mape(testing.ts, forecast2.opt)
+
+MAPE_results <- data.frame(
+  Method = names(rows),
+  MAPE = as.numeric(rows),
+  row.names = NULL
+)
+MAPE_results <- MAPE_results[order(MAPE_results$MAPE), ]
+MAPE_results
+
+
+```
+
+
+## Kesimpulan Perbandingan Metode Pemulusan
+Berdasarkan hasil evaluasi menggunakan ukuran akurasi MAPE, metode pemulusan yang memberikan performa terbaik pada data harga Bitcoin subset (1/5 akhir) adalah Double Exponential Smoothing (DES) dengan parameter α=0.6 dan β=0.3, dengan nilai MAPE sebesar ±8.04%. Nilai ini berada di bawah ambang 10%, sehingga dapat dikategorikan sebagai model dengan tingkat akurasi yang sangat baik.
+Metode Holt–Winters Additive (optimal) juga menunjukkan performa yang cukup baik dengan nilai MAPE sekitar 9.65%, namun masih sedikit lebih tinggi dibandingkan dengan DES α=0.6 β=0.3. Metode lainnya seperti DES optimal dan Holt–Winters Multiplicative optimal menghasilkan MAPE pada kisaran 10–11%, yang masih tergolong cukup akurat.
+Sementara itu, metode DMA (Double Moving Average) menghasilkan MAPE sekitar 16%, dan metode Single Exponential Smoothing (SES), baik dengan parameter tetap maupun optimal, menunjukkan performa yang kurang baik dengan MAPE di atas 40%. Hal ini menunjukkan bahwa metode SES kurang mampu menangkap pola tren dan variasi musiman pada data harga Bitcoin.
+Dengan demikian, dapat disimpulkan bahwa DES (α=0.6, β=0.3) merupakan metode terbaik untuk peramalan data ini, sedangkan metode Holt–Winters (aditif) dapat dipertimbangkan sebagai alternatif kedua. 
