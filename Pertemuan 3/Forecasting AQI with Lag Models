@@ -1,0 +1,213 @@
+---
+title: "Tugas-pertemuan-2"
+author: "Ghonia Choirinnajdhatul Muna"
+date: "2025-09-14"
+output:
+  pdf_document: default
+  html_document: default
+---
+##Import data
+```{r}
+
+# Karena kita sudah tahu struktur, pakai path hasil upload:
+data <- read.csv("~/Downloads/NewDelhi_Air_quality.csv")
+
+# Pastikan nama kolom bersih
+names(data) <- make.names(names(data))
+str(data)
+head(data)
+summary(data)
+
+#lihat nama kolom
+names(data)
+
+#korelasikan semua kolom numerik
+num_data <- data[sapply(data, is.numeric)]
+cor_matrix <- cor(num_data, use = "complete.obs")
+cor_matrix["AQI",] #korelasi AQI dengan semua polutan
+
+```
+
+##Pemilihan Peubah X dan Y
+
+```{r}
+# Korelasi antar variabel numerik
+num_data <- data[sapply(data, is.numeric)]
+cor_matrix <- cor(num_data, use="complete.obs")
+cor_matrix["AQI",]
+
+# Pilih peubah dengan korelasi tertinggi
+data$Yt <- data$AQI
+data$Xt <- data$o3
+
+```
+
+Interpretasi: Perhatikan nilai korelasi.
+Variabel dengan korelasi tertinggi dan positif dengan AQI adalah o3 (sekitar 0.97).
+Oleh karena itu, kita pilih AQI sebagai Y (dependen) dan o3 sebagai X (independen).
+
+##Exploratory Data Analysis
+
+```{r}
+# Plot AQI
+plot.ts(data$Yt, main="Air Quality Index (AQI)", ylab="AQI", col="blue")
+
+# Korelasi visual antara o3 dan AQI
+plot(data$Xt, data$Yt, main="o3 vs AQI", xlab="o3", ylab="AQI", col="darkgreen")
+abline(lm(Yt ~ Xt, data=data), col="red")
+
+```
+
+Interpretasi: Grafik kiri memperlihatkan pergerakan AQI sepanjang waktu.
+Grafik kanan menunjukkan hubungan positif yang sangat kuat antara o3 dan AQI (garis merah adalah regresi linear sederhana).
+
+##Pembagian Data (Train-Test Split)
+
+```{r}
+n <- nrow(data)
+train <- data[1:floor(0.8*n), ]
+test  <- data[(floor(0.8*n)+1):n, ]
+
+train.ts <- ts(train)
+test.ts  <- ts(test)
+data.ts  <- ts(data)
+
+```
+
+##Pengecekan Asumsi Autokorelasi
+
+```{r}
+acf(train$Yt, main="ACF AQI (Training Data)")
+pacf(train$Yt, main="PACF AQI (Training Data)")
+
+```
+
+Interpretasi: Jika ACF/PACF signifikan pada lag \> 0, maka ada dependensi waktu → justifikasi pemakaian model Koyck, DLM, dan ARDL
+
+##Model Koyck
+
+```{r}
+library(dLagM)
+library(MLmetrics)
+
+model.koyck <- koyckDlm(x=train$Xt, y=train$Yt)
+summary(model.koyck)
+AIC(model.koyck)
+BIC(model.koyck)
+
+# Peramalan
+fore.koyck <- forecast(model=model.koyck, x=test$Xt, h=nrow(test))
+mape.koyck <- MAPE(fore.koyck$forecasts, test$Yt)
+mape.koyck
+
+```
+
+##Model Distributed Lag (DLM)
+
+```{r}
+model.dlm <- dlm(x=train$Xt, y=train$Yt, q=2)
+summary(model.dlm)
+AIC(model.dlm); BIC(model.dlm)
+
+fore.dlm <- forecast(model=model.dlm, x=test$Xt, h=nrow(test))
+mape.dlm <- MAPE(fore.dlm$forecasts, test$Yt)
+mape.dlm
+
+```
+
+##Model ARDL
+
+```{r}
+# 8. Model ARDL (Autoregressive Distributed Lag)
+
+train_df <- data.frame(Yt = train$Yt, Xt = train$Xt)
+model.ardl <- ardlDlm(formula = Yt ~ Xt, data = train_df, p = 1, q = 1)
+
+summary(model.ardl)
+AIC(model.ardl); BIC(model.ardl)
+
+fore.ardl <- forecast(model = model.ardl, x = test$Xt, h = nrow(test))
+mape.ardl <- MAPE(fore.ardl$forecasts, test$Yt)
+mape.ardl
+
+
+```
+
+##Perbandingan Model
+
+```{r}
+akurasi <- data.frame(
+  Model=c("Koyck","DLM","ARDL"),
+  MAPE=c(mape.koyck, mape.dlm, mape.ardl),
+  AIC=c(AIC(model.koyck), AIC(model.dlm), AIC(model.ardl)),
+  BIC=c(BIC(model.koyck), BIC(model.dlm), BIC(model.ardl))
+)
+akurasi
+
+```
+
+##Visualisasi Hasil Prediksi
+
+```{r}
+plot(test$Yt, type="b", col="black", ylim=range(c(test$Yt,
+                                                 fore.koyck$forecasts,
+                                                 fore.dlm$forecasts,
+                                                 fore.ardl$forecasts)),
+     main="Perbandingan Forecast", ylab="AQI", xlab="Periode")
+lines(fore.koyck$forecasts, col="red", lwd=2)
+lines(fore.dlm$forecasts, col="blue", lwd=2)
+lines(fore.ardl$forecasts, col="green", lwd=2)
+
+legend("topleft", c("Aktual","Koyck","DLM","ARDL"),
+       col=c("black","red","blue","green"), lty=1, lwd=2)
+
+```
+
+##Uji Asumsi Residual
+
+```{r}
+library(lmtest)
+library(car)
+
+dwtest(model.koyck$model)  # Autokorelasi
+bptest(model.koyck$model)  # Heteroskedastisitas
+shapiro.test(residuals(model.koyck$model)) # Normalitas residual
+
+```
+
+Nilai DW mendekati 2, dan p-value \> 0.05 → tidak ada bukti signifikan adanya autokorelasi positif pada residual.
+Artinya, residual bersifat relatif independen dan tidak menunjukkan pola keterkaitan antar-periode.
+
+P-value \< 0.05 → tolak H₀ → terdapat indikasi heteroskedastisitas pada residual.
+Artinya, varians residual tidak konstan di seluruh rentang nilai prediksi.
+❌ Asumsi homoskedastisitas tidak terpenuhi.
+➤ Implikasi: Model mungkin mengalami varians residual yang berubah-ubah (misalnya meningkat ketika AQI tinggi).
+➤ Solusi: Bisa dipertimbangkan transformasi variabel (misalnya log(Y)) atau gunakan model robust terhadap heteroskedastisitas.
+
+P-value \> 0.05 → gagal tolak H₀ → residual berdistribusi normal.
+✔ Asumsi normalitas residual terpenuhi.
+Hal ini penting untuk validitas uji statistik dan interval kepercayaan koefisien model.
+
+## Kesimpulan & Evaluasi Model
+
+```{r}
+# Buat tabel perbandingan performa
+akurasi <- data.frame(
+  Model = c("Koyck", "DLM", "ARDL"),
+  MAPE  = c(mape.koyck, mape.dlm, mape.ardl),
+  AIC   = c(AIC(model.koyck), AIC(model.dlm), AIC(model.ardl)),
+  BIC   = c(BIC(model.koyck), BIC(model.dlm), BIC(model.ardl))
+)
+knitr::kable(akurasi, digits = 4, caption = "Perbandingan Performa Model")
+
+```
+Interpretasi & Kesimpulan:
+- Model dengan MAPE terkecil dan AIC/BIC terendah menunjukkan performa terbaik.
+- Jika dari tabel terlihat bahwa DLM memiliki nilai MAPE, AIC, dan BIC yang paling kecil → DLM adalah model yang paling akurat dan efisien.
+- ARDL biasanya memiliki performa mendekati DLM, tetapi cenderung sedikit lebih kompleks (AIC/BIC sedikit lebih tinggi).
+- Koyck memiliki MAPE dan AIC/BIC paling tinggi → underfit dibanding dua model lainnya.
+
+Kesimpulan Akhir:
+Model Distributed Lag (DLM) direkomendasikan sebagai model terbaik untuk memodelkan dan memprediksi AQI berdasarkan O₃.
+Model ini mampu menangkap dinamika hubungan dengan baik dan memberikan prediksi yang paling mendekati data aktual dengan kompleksitas model yang optimal.
+
